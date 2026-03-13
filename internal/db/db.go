@@ -3,9 +3,10 @@ package db
 import (
 	"fmt"
 	"log"
-	"os" // Required to read Environment Variables
+	"os"
 
 	"github.com/NotKidding/olympus-server/internal/models"
+	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -13,7 +14,12 @@ import (
 var DB *gorm.DB
 
 func InitDB() {
-	// Pull secrets from the environment
+	// 1. Load the .env file into the process environment
+	if err := godotenv.Load(); err != nil {
+		log.Println("[!] No .env file found, using system environment variables")
+	}
+
+	// 2. Now os.Getenv will actually find your values
 	host := os.Getenv("DB_HOST")
 	user := os.Getenv("DB_USER")
 	pass := os.Getenv("DB_PASS")
@@ -25,7 +31,7 @@ func InitDB() {
 	var err error
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatal("[-] Database connection failed. Check your environment variables.")
+		log.Fatal("[-] Database connection failed. Check your .env file and ensure the Docker container is running.")
 	}
 
 	DB.AutoMigrate(&models.Agent{})

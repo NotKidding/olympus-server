@@ -1,10 +1,29 @@
 version: '3.8'
 services:
+  olympus-db:
+    image: postgres:15-alpine
+    container_name: olympus-db
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   olympus-server:
     build: .
-    env_file: .env  # Docker reads your local .env and injects it
+    container_name: olympus-server
     depends_on:
       - olympus-db
-  
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=olympus-db
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+
 volumes:
   postgres_data:
