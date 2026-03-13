@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package olympus.v1;
+
+option go_package = "github.com/NotKidding/olympus-server/pkg/api/v1;olympusv1";
+
+service OlympusService {
+  // For Role C to get the agent list
+  rpc GetAgents(GetAgentsRequest) returns (GetAgentsResponse);
+}
+
+message GetAgentsRequest {}
+
+message GetAgentsResponse {
+  repeated Agent agents = 1;
+}
+
+message Agent {
+  string id = 1;
+  string hostname = 2;
+  string last_seen = 3;
+}
