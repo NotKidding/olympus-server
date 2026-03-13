@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  olympus-server:
+    build: .
+    env_file: .env  # Docker reads your local .env and injects it
+    depends_on:
+      - olympus-db
+  
+volumes:
+  postgres_data:

@@ -1,0 +1,27 @@
+# === Binaries & Compiled Files ===
+olympus
+hermes
+build/
+bin/
+*.exe
+*.dll
+
+# === IDE & OS Files ===
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# === Environment Secrets (CRITICAL) ===
+.env
+.env.*
+config.yaml
+! .env.example
+
+# === Go Specific ===
+vendor/
+go.work
+
+# === Docker & Persistence ===
+postgres_data/
+*.log
